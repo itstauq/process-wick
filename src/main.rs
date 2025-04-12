@@ -1,5 +1,8 @@
 use clap::Parser;
+use log::{info, warn};
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,7 +21,7 @@ use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
 
 #[derive(Parser, Debug)]
 #[command(name = "process-wick")]
-#[command(about = "Revenge-driven process watcher", long_about = None)]
+#[command(about = "The John Wick of processes — Kill dangling processes when the parent dies 🔫💥", long_about = None)]
 struct Args {
     /// PID of the process to watch (the dog). If not provided, defaults to parent PID.
     #[arg(long)]
@@ -35,6 +38,14 @@ struct Args {
     /// Time in seconds between each check on the dog.
     #[arg(long, default_value = "3")]
     tick: u64,
+
+    /// Path to the log file. If not provided, logs will only be printed to console.
+    #[arg(long)]
+    log_file: Option<String>,
+
+    /// Log level (error, warn, info, debug, trace). Default: info
+    #[arg(long, default_value = "info")]
+    log_level: String,
 }
 
 fn get_dog_pid(dog_arg: Option<u32>) -> u32 {
@@ -99,12 +110,46 @@ fn send_signal(pid: u32, force: bool) {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+
+    // Initialize logging
+    let mut logger = env_logger::Builder::from_default_env();
+
+    // Set the default log level
+    logger.filter_level(match args.log_level.to_lowercase().as_str() {
+        "error" => log::LevelFilter::Error,
+        "warn" => log::LevelFilter::Warn,
+        "info" => log::LevelFilter::Info,
+        "debug" => log::LevelFilter::Debug,
+        "trace" => log::LevelFilter::Trace,
+        _ => log::LevelFilter::Info,
+    });
+
+    logger.format(|buf, record| {
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+        writeln!(
+            buf,
+            "[{}] {} - {}",
+            timestamp,
+            record.level(),
+            record.args()
+        )
+    });
+
+    // If log file is specified, write to both file and console
+    if let Some(log_path) = &args.log_file {
+        let log_file = File::create(log_path).expect("Failed to create log file");
+        let log_file = Box::new(log_file);
+        logger.target(env_logger::Target::Pipe(log_file));
+    }
+
+    logger.init();
+
     let dog_pid = get_dog_pid(args.dog);
     let targets: HashSet<u32> = args.targets.into_iter().collect();
 
-    println!("🐶 Watching dog PID: {}", dog_pid);
-    println!("🎯 Targets: {:?}", targets);
-    println!(
+    info!("🐶 Watching dog PID: {}", dog_pid);
+    info!("🎯 Targets: {:?}", targets);
+    info!(
         "⏳ Tick every {}s, vengeance in {}s",
         args.tick, args.vengeance_delay
     );
@@ -116,9 +161,9 @@ async fn main() {
     tokio::spawn(async move {
         loop {
             if !is_process_alive(dog_pid) {
-                println!("💀 Dog died. Unleashing vengeance.");
+                warn!("💀 Dog died. Unleashing vengeance.");
                 for &pid in &targets {
-                    println!("⚠️ Sending SIGTERM to PID {}", pid);
+                    info!("⚠️ Sending SIGTERM to PID {}", pid);
                     send_signal(pid, false); // graceful termination
                 }
 
@@ -126,12 +171,12 @@ async fn main() {
 
                 for &pid in &targets {
                     if is_process_alive(pid) {
-                        println!("🔪 Forcing kill on PID {}", pid);
+                        warn!("🔪 Forcing kill on PID {}", pid);
                         send_signal(pid, true); // force termination
                     }
                 }
 
-                println!("🧘 Process-wick retires in peace.");
+                info!("🧘 Process-wick retires in peace.");
                 r.store(false, Ordering::SeqCst);
                 break;
             }
