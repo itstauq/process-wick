@@ -16,4 +16,9 @@ libc = { version = "0.2" }
 
 # Windows-specific dependencies (only used for Windows)
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3" }
+winapi = { version = "0.3", features = [
+    "handleapi",
+    "processthreadsapi",
+    "tlhelp32",
+    "winnt",
+] }

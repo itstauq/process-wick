@@ -13,11 +13,17 @@ use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 
 #[cfg(windows)]
-use winapi::um::handleapi::CloseHandle;
+use std::mem::{size_of, zeroed};
+
 #[cfg(windows)]
-use winapi::um::processthreadsapi::OpenProcess;
-#[cfg(windows)]
-use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
+use winapi::um::{
+    handleapi::CloseHandle,
+    processthreadsapi::{GetCurrentProcessId, OpenProcess},
+    tlhelp32::{
+        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
+    },
+    winnt::{HANDLE, PROCESS_QUERY_LIMITED_INFORMATION},
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "process-wick")]
@@ -55,9 +61,35 @@ fn get_dog_pid(dog_arg: Option<u32>) -> u32 {
             unsafe { libc::getppid() as u32 }
         }
         #[cfg(windows)]
-        {
-            // Windows fallback to get parent PID
-            unsafe { process::id() }
+        unsafe {
+            let current_pid = GetCurrentProcessId();
+            let snapshot: HANDLE = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snapshot.is_null() {
+                return 0;
+            }
+
+            let mut entry: PROCESSENTRY32 = zeroed();
+            entry.dwSize = size_of::<PROCESSENTRY32>() as u32;
+
+            let mut found = false;
+            if Process32First(snapshot, &mut entry) != 0 {
+                loop {
+                    if entry.th32ProcessID == current_pid {
+                        found = true;
+                        break;
+                    }
+                    if Process32Next(snapshot, &mut entry) == 0 {
+                        break;
+                    }
+                }
+            }
+            CloseHandle(snapshot);
+
+            if found {
+                entry.th32ParentProcessID
+            } else {
+                0
+            }
         }
     })
 }
