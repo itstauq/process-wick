@@ -122,21 +122,83 @@ fn send_signal(pid: u32, force: bool) {
     } else {
         Signal::SIGTERM
     };
-    let _ = kill(Pid::from_raw(pid as i32), sig);
+
+    // Attempt to kill the process group first
+    let pgid = -(pid as i32);
+    info!(
+        "Attempting to send {} to process group {} (original PID: {})",
+        sig, pgid, pid
+    );
+
+    match kill(Pid::from_raw(pgid), sig) {
+        Ok(_) => {
+            info!("Successfully sent {} to process group {}.", sig, pgid);
+        }
+        Err(e_pgid) => {
+            warn!(
+                "Failed to send {} to process group {}: {:?}. Attempting to send to individual PID {}.",
+                sig, pgid, e_pgid, pid
+            );
+            // If killing process group fails, try killing the individual PID
+            let individual_pid = pid as i32;
+            match kill(Pid::from_raw(individual_pid), sig) {
+                Ok(_) => {
+                    info!("Successfully sent {} to PID {}.", sig, individual_pid);
+                }
+                Err(e_pid) => {
+                    warn!(
+                        "Failed to send {} to PID {}: {:?}.",
+                        sig, individual_pid, e_pid
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
 fn send_signal(pid: u32, force: bool) {
     use std::process::Command;
 
+    let pid_str = pid.to_string();
     let mut cmd = Command::new("taskkill");
-    cmd.args(&["/PID", &pid.to_string(), "/T"]); // /T kills child processes
+    cmd.arg("/PID").arg(&pid_str);
+    cmd.arg("/T"); // /T kills child processes
 
     if force {
         cmd.arg("/F"); // Force kill
     }
 
-    let _ = cmd.output(); // Ignore result for now
+    info!(
+        "Executing taskkill for PID {} and its children (force: {}). Command: {:?}",
+        pid, force, cmd
+    );
+
+    match cmd.output() {
+        Ok(output) => {
+            if output.status.success() {
+                info!(
+                    "taskkill for PID {} and its children (force: {}) successful.",
+                    pid, force
+                );
+            } else {
+                warn!(
+                    "taskkill for PID {} and its children (force: {}) failed. Status: {}. Stdout: [{}], Stderr: [{}]",
+                    pid,
+                    force,
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout).trim(),
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+        }
+        Err(e) => {
+            warn!(
+                "Windows: Failed to execute taskkill for PID {} and its children (force: {}): {:?}",
+                pid, force, e
+            );
+        }
+    }
 }
 
 #[tokio::main]
@@ -195,7 +257,7 @@ async fn main() {
             if !is_process_alive(dog_pid) {
                 warn!("💀 Dog died. Unleashing vengeance.");
                 for &pid in &targets {
-                    info!("⚠️ Sending SIGTERM to PID {}", pid);
+                    info!("⚠️ Sending SIGTERM to PID {} and its children", pid);
                     send_signal(pid, false); // graceful termination
                 }
 
@@ -203,7 +265,7 @@ async fn main() {
 
                 for &pid in &targets {
                     if is_process_alive(pid) {
-                        warn!("🔪 Forcing kill on PID {}", pid);
+                        warn!("🔪 Forcing kill on PID {} and its children", pid);
                         send_signal(pid, true); // force termination
                     }
                 }
