@@ -8,21 +8,23 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(unix)]
-use nix::sys::signal::{kill, Signal};
-#[cfg(unix)]
-use nix::unistd::Pid;
+use nix::{
+    sys::signal::{kill, Signal},
+    unistd::Pid,
+};
 
 #[cfg(windows)]
-use std::mem::{size_of, zeroed};
-
-#[cfg(windows)]
-use winapi::um::{
-    handleapi::CloseHandle,
-    processthreadsapi::{GetCurrentProcessId, OpenProcess},
-    tlhelp32::{
-        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
+use {
+    std::mem::{size_of, zeroed},
+    winapi::um::{
+        handleapi::CloseHandle,
+        processthreadsapi::GetCurrentProcessId,
+        tlhelp32::{
+            CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32,
+            TH32CS_SNAPPROCESS,
+        },
+        winnt::HANDLE,
     },
-    winnt::{HANDLE, PROCESS_QUERY_LIMITED_INFORMATION},
 };
 
 #[derive(Parser, Debug)]
@@ -97,20 +99,39 @@ fn get_dog_pid(dog_arg: Option<u32>) -> u32 {
 fn is_process_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
-        use nix::sys::signal::kill;
-        use nix::unistd::Pid;
         kill(Pid::from_raw(pid as i32), None).is_ok()
     }
 
     #[cfg(windows)]
     {
         unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if handle.is_null() {
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snapshot.is_null() {
+                warn!(
+                    "Failed to create process snapshot: {:?}",
+                    std::io::Error::last_os_error()
+                );
                 return false;
             }
-            CloseHandle(handle);
-            true
+
+            let mut entry: PROCESSENTRY32 = zeroed();
+            entry.dwSize = size_of::<PROCESSENTRY32>() as u32;
+
+            let mut found = false;
+            if Process32First(snapshot, &mut entry) != 0 {
+                loop {
+                    if entry.th32ProcessID == pid {
+                        found = true;
+                        break;
+                    }
+                    if Process32Next(snapshot, &mut entry) == 0 {
+                        break;
+                    }
+                }
+            }
+
+            CloseHandle(snapshot);
+            found
         }
     }
 }
