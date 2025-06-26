@@ -158,11 +158,11 @@ pub fn get_all_processes() -> Vec<(u32, u32)> {
         let mut entry: PROCESSENTRY32 = zeroed();
         entry.dwSize = size_of::<PROCESSENTRY32>() as u32;
 
-        if Process32First(snapshot, &entry) != 0 {
+        if Process32First(snapshot, &mut entry as *mut PROCESSENTRY32) != 0 {
             loop {
                 processes.push((entry.th32ProcessID, entry.th32ParentProcessID));
 
-                if Process32Next(snapshot, &mut entry) == 0 {
+                if Process32Next(snapshot, &mut entry as *mut PROCESSENTRY32) == 0 {
                     break;
                 }
             }
@@ -192,13 +192,13 @@ pub fn get_dog_pid(dog_arg: Option<u32>) -> u32 {
             entry.dwSize = size_of::<PROCESSENTRY32>() as u32;
 
             let mut found = false;
-            if Process32First(snapshot, &mut entry) != 0 {
+            if Process32First(snapshot, &mut entry as *mut PROCESSENTRY32) != 0 {
                 loop {
                     if entry.th32ProcessID == current_pid {
                         found = true;
                         break;
                     }
-                    if Process32Next(snapshot, &mut entry) == 0 {
+                    if Process32Next(snapshot, &mut entry as *mut PROCESSENTRY32) == 0 {
                         break;
                     }
                 }
@@ -236,13 +236,13 @@ pub fn is_process_alive(pid: u32) -> bool {
             entry.dwSize = size_of::<PROCESSENTRY32>() as u32;
 
             let mut found = false;
-            if Process32First(snapshot, &entry) != 0 {
+            if Process32First(snapshot, &entry as *mut PROCESSENTRY32) != 0 {
                 loop {
                     if entry.th32ProcessID == pid {
                         found = true;
                         break;
                     }
-                    if Process32Next(snapshot, &entry) == 0 {
+                    if Process32Next(snapshot, &entry as *mut PROCESSENTRY32) == 0 {
                         break;
                     }
                 }
