@@ -236,13 +236,13 @@ pub fn is_process_alive(pid: u32) -> bool {
             entry.dwSize = size_of::<PROCESSENTRY32>() as u32;
 
             let mut found = false;
-            if Process32First(snapshot, &entry as *mut PROCESSENTRY32) != 0 {
+            if Process32First(snapshot, &mut entry as *mut PROCESSENTRY32) != 0 {
                 loop {
                     if entry.th32ProcessID == pid {
                         found = true;
                         break;
                     }
-                    if Process32Next(snapshot, &entry as *mut PROCESSENTRY32) == 0 {
+                    if Process32Next(snapshot, &mut entry as *mut PROCESSENTRY32) == 0 {
                         break;
                     }
                 }

@@ -119,7 +119,7 @@ fn test_basic_functionality() {
     dog_process.kill().expect("Failed to kill dog process");
 
     // Wait for process-wick to finish
-    let output = rx
+    let _output = rx
         .recv_timeout(Duration::from_secs(10))
         .expect("Timeout waiting for process-wick");
 
@@ -144,14 +144,14 @@ fn test_default_dog_pid() {
     let binary_path = build_binary();
 
     // Create target processes
-    let mut target1 = create_test_process();
+    let target1 = create_test_process();
     let target1_pid = target1.id();
 
     // Start process-wick without specifying --dog (should use parent PID)
-    let (tx, rx) = mpsc::channel();
+    let (tx, _rx) = mpsc::channel();
     let binary_path_clone = binary_path.clone();
 
-    let handle = thread::spawn(move || {
+    let _handle = thread::spawn(move || {
         let output = Command::new(&binary_path_clone)
             .args(&[
                 "--targets",
@@ -176,7 +176,7 @@ fn test_default_dog_pid() {
 
     // This test is a bit tricky because we're killing the parent
     // In a real scenario, this would work, but for testing we'll just verify the binary starts
-    handle.join().unwrap();
+    _handle.join().unwrap();
 
     // Clean up
     let _ = target1.kill();
@@ -274,7 +274,7 @@ fn test_multiple_targets() {
     let mut target_pids = Vec::new();
 
     for _ in 0..5 {
-        let mut target = create_test_process();
+        let target = create_test_process();
         target_pids.push(target.id());
         targets.push(target);
     }
