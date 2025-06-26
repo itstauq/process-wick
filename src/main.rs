@@ -7,7 +7,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use process_wick::{get_dog_pid, is_process_alive, send_signal};
+use process_wick::{
+    build_process_tree, get_dog_pid, get_pids_by_depth, is_process_alive, kill_process_group,
+    send_signal_to_pids,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "process-wick")]
@@ -83,17 +86,99 @@ async fn main() {
         loop {
             if !is_process_alive(dog_pid) {
                 warn!("💀 Dog died. Unleashing vengeance.");
+
+                // Step 1: Try group killing first for all targets
+                let mut targets_needing_individual_kill: Vec<u32> = Vec::new();
+
                 for &pid in &targets {
-                    info!("⚠️ Sending SIGTERM to PID {} and its children", pid);
-                    send_signal(pid, false);
-                }
-                tokio::time::sleep(Duration::from_secs(args.vengeance_delay)).await;
-                for &pid in &targets {
-                    if is_process_alive(pid) {
-                        warn!("🔪 Forcing kill on PID {} and its children", pid);
-                        send_signal(pid, true);
+                    info!("⚠️ Attempting group kill for PID {}", pid);
+                    let group_kill_successful = kill_process_group(pid, false);
+
+                    if !group_kill_successful {
+                        info!("⚠️ Group kill failed for PID {}, will use individual process termination", pid);
+                        targets_needing_individual_kill.push(pid);
                     }
                 }
+
+                // Step 2: If group killing failed for any targets, build fresh process trees and kill individually
+                let mut all_pids_to_kill: Vec<u32> = Vec::new();
+
+                if !targets_needing_individual_kill.is_empty() {
+                    info!("🔍 Building fresh process trees for individual termination");
+
+                    for &pid in &targets_needing_individual_kill {
+                        info!("⚠️ Building fresh process tree for PID {}", pid);
+                        let process_tree = build_process_tree(pid);
+                        let pids_in_order = get_pids_by_depth(&process_tree);
+
+                        info!(
+                            "📋 PID {} has {} child processes: {:?}",
+                            pid,
+                            pids_in_order.len(),
+                            pids_in_order
+                        );
+
+                        // Add all PIDs from this tree to our kill list
+                        for &tree_pid in &pids_in_order {
+                            if !all_pids_to_kill.contains(&tree_pid) {
+                                all_pids_to_kill.push(tree_pid);
+                            }
+                        }
+                    }
+
+                    info!("🎯 Total PIDs to kill individually: {:?}", all_pids_to_kill);
+
+                    // Step 3: Send SIGTERM to individual PIDs
+                    info!("⚠️ Sending SIGTERM to individual processes");
+                    send_signal_to_pids(&all_pids_to_kill, false);
+                }
+
+                // Step 4: Wait for graceful termination
+                info!(
+                    "⏳ Waiting {} seconds for graceful termination...",
+                    args.vengeance_delay
+                );
+                tokio::time::sleep(Duration::from_secs(args.vengeance_delay)).await;
+
+                // Step 5: Refresh the kill list, adding new PIDs but preserving original ones
+                let mut final_kill_list: Vec<u32> = all_pids_to_kill.clone();
+                let mut targets_needing_individual_force_kill: Vec<u32> = Vec::new();
+
+                for &pid in &targets {
+                    info!("⚠️ Forcefully attempting group kill for PID {}", pid);
+                    let group_kill_successful = kill_process_group(pid, true);
+
+                    if !group_kill_successful {
+                        info!("⚠️ Group kill failed for PID {}, will use individual process force termination", pid);
+                        targets_needing_individual_force_kill.push(pid);
+                    }
+                }
+                if !targets_needing_individual_force_kill.is_empty() {
+                    info!("🔍 Refreshing process trees to catch any new processes");
+
+                    for &pid in &targets_needing_individual_force_kill {
+                        let process_tree = build_process_tree(pid);
+                        let pids_in_order = get_pids_by_depth(&process_tree);
+
+                        // Add any new PIDs that weren't in the original list
+                        for &tree_pid in &pids_in_order {
+                            if !final_kill_list.contains(&tree_pid) {
+                                info!("➕ Adding new PID {} to kill list", tree_pid);
+                                final_kill_list.push(tree_pid);
+                            }
+                        }
+                    }
+
+                    info!(
+                        "🎯 Final kill list (preserving original + new PIDs): {:?}",
+                        final_kill_list
+                    );
+                }
+
+                // Step 6: Force kill all processes in the final list
+                info!("🔪 Force killing all processes in final list");
+                send_signal_to_pids(&final_kill_list, true);
+
                 info!("🧘 Process-wick retires in peace.");
                 r.store(false, Ordering::SeqCst);
                 break;
