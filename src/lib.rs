@@ -127,10 +127,10 @@ pub fn get_dog_pid(dog_arg: Option<u32>) -> u32 {
             // Use sysinfo to get current process info
             let mut sys = System::new_all();
             sys.refresh_all();
-            let current_pid = sys.current_pid().unwrap_or(Pid::from(0));
+            let current_pid = std::process::id();
 
             // Find current process and get its parent
-            if let Some(process) = sys.process(current_pid) {
+            if let Some(process) = sys.process(Pid::from(current_pid as usize)) {
                 process.parent().unwrap_or(Pid::from(0)).as_u32()
             } else {
                 0
