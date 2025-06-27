@@ -108,8 +108,7 @@ fn test_argument_parsing() {
             "--dog",
             "1234",
             "--targets",
-            "5678",
-            "9012",
+            "5678,9012",
             "--vengeance-delay",
             "10",
             "--tick",
@@ -132,9 +131,9 @@ fn test_argument_parsing() {
 fn test_multiple_targets_parsing() {
     let binary_path = build_binary();
 
-    // Test with multiple target PIDs
+    // Test with multiple target PIDs (comma-separated)
     let output = Command::new(&binary_path)
-        .args(&["--dog", "1234", "--targets", "5678", "9012", "3456", "7890"])
+        .args(&["--dog", "1234", "--targets", "5678,9012,3456,7890"])
         .output()
         .expect("Failed to execute process-wick");
 
@@ -142,6 +141,25 @@ fn test_multiple_targets_parsing() {
     assert!(
         output.status.code().is_some(),
         "Should accept multiple target PIDs"
+    );
+}
+
+#[test]
+fn test_invalid_targets_argument() {
+    let binary_path = build_binary();
+
+    // Test with an invalid PID in the targets list
+    let output = Command::new(&binary_path)
+        .args(&["--dog", "1234", "--targets", "5678,notanumber,9012"])
+        .output()
+        .expect("Failed to execute process-wick");
+
+    // Should fail with an error about invalid PID
+    assert!(!output.status.success(), "Should fail with invalid PID");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Invalid PID: notanumber"),
+        "Error should mention invalid PID"
     );
 }
 

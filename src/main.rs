@@ -1,6 +1,5 @@
 use clap::Parser;
 use log::{info, warn};
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,7 +8,7 @@ use std::time::Duration;
 
 use process_wick::{
     build_process_tree, get_dog_pid, get_pids_by_depth, is_process_alive, kill_process_group,
-    send_signal_to_pids,
+    parse_target_pids, send_signal_to_pids,
 };
 
 #[derive(Parser, Debug)]
@@ -20,9 +19,9 @@ struct Args {
     #[arg(long)]
     dog: Option<u32>,
 
-    /// PIDs of the processes to kill when the dog dies.
+    /// PIDs of the processes to kill when the dog dies (comma-separated).
     #[arg(long, required = true)]
-    targets: Vec<u32>,
+    targets: String,
 
     /// Time in seconds to wait after SIGTERM before force-killing.
     #[arg(long, default_value = "5")]
@@ -73,7 +72,13 @@ async fn main() {
     logger.init();
 
     let dog_pid = get_dog_pid(args.dog);
-    let targets: HashSet<u32> = args.targets.into_iter().collect();
+    let targets = match parse_target_pids(&args.targets) {
+        Ok(pids) => pids,
+        Err(e) => {
+            eprintln!("Error parsing targets: {}", e);
+            std::process::exit(1);
+        }
+    };
     info!("🐶 Watching dog PID: {}", dog_pid);
     info!("🎯 Targets: {:?}", targets);
     info!(

@@ -42,7 +42,7 @@ pub fn get_all_processes() -> Vec<(u32, u32)> {
     processes
 }
 
-/// Builds a process tree starting from the given root PID
+/// Builds a process tree s ting from the given root PID
 pub fn build_process_tree(root_pid: u32) -> HashMap<u32, ProcessNode> {
     let mut process_tree: HashMap<u32, ProcessNode> = HashMap::new();
     let mut to_visit: VecDeque<u32> = VecDeque::new();
@@ -274,4 +274,91 @@ pub fn kill_process_group(root_pid: u32, force: bool) -> bool {
     }
 
     false
+}
+
+/// Parses a comma-separated string of PIDs into a HashSet of u32 values
+///
+/// # Arguments
+/// * `targets_str` - A comma-separated string of PIDs (e.g., "1234,5678,9012")
+///
+/// # Returns
+/// * `Result<HashSet<u32>, String>` - A HashSet of PIDs or an error message
+///
+/// # Examples
+/// ```
+/// use process_wick::parse_target_pids;
+///
+/// let result = parse_target_pids("1234,5678,9012").unwrap();
+/// assert_eq!(result.len(), 3);
+/// assert!(result.contains(&1234));
+/// assert!(result.contains(&5678));
+/// assert!(result.contains(&9012));
+/// ```
+pub fn parse_target_pids(targets_str: &str) -> Result<HashSet<u32>, String> {
+    let mut pids = HashSet::new();
+
+    for s in targets_str.split(',') {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            match trimmed.parse::<u32>() {
+                Ok(pid) => {
+                    pids.insert(pid);
+                }
+                Err(_) => {
+                    return Err(format!("Invalid PID: {}", trimmed));
+                }
+            }
+        }
+    }
+
+    if pids.is_empty() {
+        return Err("No valid PIDs provided".to_string());
+    }
+
+    Ok(pids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_target_pids_basic() {
+        let result = parse_target_pids("1234,5678,9012").unwrap();
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&1234));
+        assert!(result.contains(&5678));
+        assert!(result.contains(&9012));
+    }
+
+    #[test]
+    fn test_parse_target_pids_with_spaces() {
+        let result = parse_target_pids(" 1234 , 5678 , 9012 ").unwrap();
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&1234));
+        assert!(result.contains(&5678));
+        assert!(result.contains(&9012));
+    }
+
+    #[test]
+    fn test_parse_target_pids_empty_and_duplicates() {
+        let result = parse_target_pids(",1234,,5678,1234,").unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&1234));
+        assert!(result.contains(&5678));
+    }
+
+    #[test]
+    fn test_parse_target_pids_invalid_pid() {
+        let result = parse_target_pids("1234,abc,5678");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Invalid PID: abc");
+    }
+
+    #[test]
+    fn test_parse_target_pids_all_invalid() {
+        let result = parse_target_pids(",,,");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "No valid PIDs provided");
+    }
 }
