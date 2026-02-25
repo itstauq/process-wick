@@ -57,6 +57,7 @@ jobs:
           move process-wick.exe ${{ matrix.artifact_name }}
         env:
           CARGO_TERM_COLOR: always
+          RUSTFLAGS: "-C target-feature=+crt-static"
 
       - name: Create release
         uses: svenstaro/upload-release-action@v2
